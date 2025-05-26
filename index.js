@@ -10,6 +10,7 @@ mongoose.connect('mongodb://cwlojako:chenweiqq0@47.106.130.54:27017/heytea')
 
 const tokenSchema = new Schema({
 	value: { type: String, required: true },
+	phone: { type: String, required: true }, // 新增字段
 	createdAt: { type: Date, default: Date.now }
 })
 const Token = mongoose.model('Token', tokenSchema)
@@ -22,7 +23,7 @@ const orderSignalSchema = new Schema({
 const OrderSignal = mongoose.model('OrderSignal', orderSignalSchema)
 
 const corsOptions = {
-	// origin: 'http://47.106.130.54:8000'
+	// origin: 'http://47.106.130.54:1128'
 	origin: '*'
 }
 
@@ -30,43 +31,63 @@ app.use(cors(corsOptions))
 app.use(bodyParser.urlencoded({ extended: false }))
 app.use(bodyParser.json())
 
+async function getTokenByPhone(phone) {
+    const token = await Token.findOne({ phone }).sort({ createdAt: -1 })
+    return token.value
+}
+
 // 设置TOKEN
-app.get('/setToken', async (req, res) => {
-	const { token } = req.query
-	if (!token) {
-		res.send({ code: 400, message: '请设置token' })
+app.get('/setOrUpdateToken', async (req, res) => {
+	const { token, phone } = req.query
+	if (!token || !phone) {
+		res.send({ code: 400, message: '请提供token 和 phone参数' })
 		return
 	}
 	try {
-		const newToken = new Token({ value: token })
-		await newToken.save()
-		res.send({ code: 200, message: '设置成功', token: newToken })
+		const existingToken = await Token.findOne({ phone })
+		if (existingToken) {
+            // 更新已有 Token
+            existingToken.value = token
+            existingToken.createdAt = new Date()
+            await existingToken.save()
+        } else {
+            // 创建新的 Token
+            const newToken = new Token({ value: token, phone })
+            await newToken.save()
+        }
+        res.send({ code: 200, message: '设置成功' })
 	} catch (error) {
-		console.error('Error saving token:', error)
 		res.status(500).send({ code: 500, message: '服务器错误' })
 	}
 })
 
+// 获取账号列表
+app.get('/getAllTokens', async (req, res) => {
+    try {
+        const tokens = await Token.find()
+        res.send({ code: 200, message: '获取成功', data: tokens })
+    } catch (error) {
+        res.status(500).send({ code: 500, message: '服务器错误', error: error.message })
+    }
+});
+
 // 查找门店
 app.post('/findStore', async (req, res) => {
-	const { name, loadShopIds } = req.body
+	const { name, loadShopIds, phone } = req.body
 	try {
-		const latestToken = await Token.findOne().sort({ createdAt: -1 }); // 按创建时间降序排序，取最新的 token
-		if (!latestToken) {
-			return res.status(400).send({ code: 400, message: '未找到有效的 token，请先设置 token' });
-		}
+		const tokenValue = await getTokenByPhone(phone)
 		const { data: result } = await axios.post(`https://go.heytea.com/api/service-smc/grayapi/search/shop-page`, {
 			name,
 			loadShopIds
 		}, {
 			headers: {
-				'Authorization': latestToken.value,
+				'Authorization': tokenValue,
 				'Content-Type': 'application/json'
 			}
 		})
 		res.send(result)
 	} catch (err) {
-		res.send({ code: err.status, message: err.data?.message || '请求失败' })
+		res.send({ code: err.status, message: err?.response?.data.message || '请求失败' })
 	}
 })
 
@@ -92,7 +113,7 @@ app.post('/findGoods', async (req, res) => {
 		}
 		res.send({ code: 200, message: '获取成功', data: goods })
 	} catch (err) {
-		res.send({ code: err.status, message: err.data?.message || '请求失败' })
+		res.send({ code: err.status, message: err?.response?.data.message || '请求失败' })
 	}
 })
 
@@ -118,22 +139,19 @@ app.post('/goodsDetail', async (req, res) => {
 		})
 		res.send({ code: 200, message: '获取成功', data: static_info })
 	} catch (err) {
-		res.send({ code: err.status, message: err.data?.message || '请求失败' })
+		res.send({ code: err.status, message: err?.response?.data.message || '请求失败' })
 	}
 })
 
 // 购买下单
 app.post('/settle', async (req, res) => {
-	let { products, shopId, price, signal, couponId } = req.body
+	let { products, shopId, price, signal, couponId, phone, remark } = req.body
 	try {
-		const latestToken = await Token.findOne().sort({ createdAt: -1 }); // 按创建时间降序排序，取最新的 token
-		if (!latestToken) {
-			return res.status(400).send({ code: 400, message: '未找到有效的 token，请先设置 token' });
-		}
+		const tokenValue = await getTokenByPhone(phone)
 		if (couponId) {
 			const { data: coupon } = await axios.post(`https://vip.heytea.com/api/service-coupon/couponLibrary/detail?id=${couponId}`, {}, {
 				headers: {
-					'Authorization': latestToken.value
+					'Authorization': tokenValue
 				}
 			})
 			if (coupon.data.couponType === 0) {
@@ -153,8 +171,8 @@ app.post('/settle', async (req, res) => {
 				"efficiency_time": 0,
 				"shop_limit_time": 0,
 				"period_id": null,
-				"phone": "13202547840",
-				"remarks": "",
+				"phone": phone || '13202547840',
+				"remarks": remark,
 				"is_takeaway": 0,
 				"box_fee": 0,
 				"total_fee": Number(price),
@@ -186,7 +204,7 @@ app.post('/settle', async (req, res) => {
 		console.log(JSON.stringify(params))
 		const { data: result } = await axios.post(`https://go.heytea.com/api/service-oms-order/grayapi/order/submit`, params, {
 			headers: {
-				'Authorization': latestToken.value,
+				'Authorization': tokenValue,
 				'Content-Type': 'application/json'
 			}
 		})
@@ -203,7 +221,7 @@ app.post('/settle', async (req, res) => {
 			paymentSchema: ""
 		}, {
 			headers: {
-				'Authorization': latestToken.value,
+				'Authorization': tokenValue,
 				'Content-Type': 'application/json'
 			}
 		})
@@ -221,8 +239,7 @@ app.post('/settle', async (req, res) => {
 
 		res.send({ code: 200, message: '下单成功', data: result1 })
 	} catch (err) {
-		console.log('-----------------', err)
-		res.send({ code: err.status, message: err.data?.message || '请求失败' })
+		res.send({ code: err.status, message: err?.response?.data.message || '请求失败' })
 	}
 })
 
@@ -245,47 +262,60 @@ app.get('/checkOrder', async (req, res) => {
 })
 
 app.get('/orderDetail', async (req, res) => {
-    const { signal } = req.query
+    const { signal, phone } = req.query
     if (!signal) {
         return res.status(400).send({ code: 400, message: '请提供 signal 参数' })
     }
     try {
 		const orderSignal = await OrderSignal.findOne({ signal })
 		const { order_no } = orderSignal
-		const latestToken = await Token.findOne().sort({ createdAt: -1 })
-		if (!latestToken) {
-			return res.status(400).send({ code: 400, message: '未找到有效的 token，请先设置 token' })
-		}
+		const tokenValue = await getTokenByPhone(phone)
         const { data: result } = await axios.get(`https://go.heytea.com/api/service-oms-order/grayapi/order/detail?orderNo=${order_no}`, {
 			headers: {
-				'Authorization': latestToken.value
+				'Authorization': tokenValue
 			}
 		})
-		res.send({ code: 200, message: '获取成功', data: result })
+		res.send(result)
     } catch (err) {
-        res.send({ code: err.status, message: err.data?.message || '请求失败' })
+        res.send({ code: err.status, message: err?.response?.data.message || '请求失败' })
     }
 })
 
 // 查找优惠券
 app.post('/findCoupon', async (req, res) => {
+	const { phone } = req.query
 	try {
-		const latestToken = await Token.findOne().sort({ createdAt: -1 })
-		if (!latestToken) {
-			return res.status(400).send({ code: 400, message: '未找到有效的 token，请先设置 token' })
-		}
+		const tokenValue = await getTokenByPhone(phone)
 		const { data: result } = await axios.post(`https://vip.heytea.com/api/service-coupon/couponLibrary/unused-page/v2`, req.body, {
 			headers: {
 				'Content-Type': 'application/json',
-				'Authorization': latestToken.value
+				'Authorization': tokenValue
 			}
 		})
 		res.send({ code: 200, message: '获取成功', data: result.data })
 	} catch (err) {
-		res.send({ code: err.status, message: err.data?.message || '请求失败' })
+		res.send({ code: err.status, message: err?.response?.data.message || '请求失败' })
 	}
 })
 
-app.listen(3000, () => {
+// 查询预计制作时间
+app.get('/getExpectTime', async (req, res) => {
+	const { orderId, orderNo, phone } = req.query
+	console.log(req.query)
+	try {
+		const tokenValue = await getTokenByPhone(phone)
+		const { data: result } = await axios.get(`https://go.heytea.com/api/service-ofc-promise/grayapi/agent/expect-time/order?query=${orderId}&orderNoList=${orderNo}`, {
+			headers: {
+				'Authorization': tokenValue
+			}
+		})
+		res.send(result)
+	} catch (err) {
+		console.log(err)
+		res.send({ code: err.status, message: err?.response?.data.message || '请求失败' })
+	}
+})
+
+app.listen(1129, () => {
 	console.log("启动成功！")
 })
