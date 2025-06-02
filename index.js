@@ -10,17 +10,67 @@ mongoose.connect('mongodb://cwlojako:chenweiqq0@47.106.130.54:27017/heytea')
 
 const tokenSchema = new Schema({
 	value: { type: String, required: true },
-	phone: { type: String, required: true }, // 新增字段
-	createdAt: { type: Date, default: Date.now }
+	phone: { type: String, required: true },
+	createdAt: { 
+		type: Date,
+		default: () => {
+            const date = new Date()
+            const year = date.getFullYear()
+            const month = String(date.getMonth() + 1).padStart(2, '0')
+            const day = String(date.getDate()).padStart(2, '0')
+            const hours = String(date.getHours()).padStart(2, '0')
+            const minutes = String(date.getMinutes()).padStart(2, '0')
+            const seconds = String(date.getSeconds()).padStart(2, '0')
+            return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`
+        }
+	}
 })
 const Token = mongoose.model('Token', tokenSchema)
 
 const orderSignalSchema = new Schema({
     order_no: { type: String, required: true },
     signal: { type: String, required: true },
-    createdAt: { type: Date, default: Date.now }
+	phone: { type: String, required: true },
+	price: { type: Number, default: 0, required: true },
+	originPrice: { type: Number, default: 0, required: true },
+    createdAt: { 
+		type: String,
+		default: () => {
+            const date = new Date()
+            const year = date.getFullYear()
+            const month = String(date.getMonth() + 1).padStart(2, '0')
+            const day = String(date.getDate()).padStart(2, '0')
+            const hours = String(date.getHours()).padStart(2, '0')
+            const minutes = String(date.getMinutes()).padStart(2, '0')
+            const seconds = String(date.getSeconds()).padStart(2, '0')
+            return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`
+        }
+	}
 })
 const OrderSignal = mongoose.model('OrderSignal', orderSignalSchema)
+
+const linkSchema = new Schema({
+    uuid: { type: String, required: true },
+    phone: { type: String, required: true },
+    price: { type: Number, required: true },
+    couponId: { type: String, default: null },
+    isClose: { type: Boolean, default: false },
+	createdAt: { 
+		type: String,
+		default: () => {
+            const date = new Date()
+            const year = date.getFullYear()
+            const month = String(date.getMonth() + 1).padStart(2, '0')
+            const day = String(date.getDate()).padStart(2, '0')
+            const hours = String(date.getHours()).padStart(2, '0')
+            const minutes = String(date.getMinutes()).padStart(2, '0')
+            const seconds = String(date.getSeconds()).padStart(2, '0')
+            return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`
+        }
+	}
+});
+
+const Link = mongoose.model('Link', linkSchema);
 
 const corsOptions = {
 	// origin: 'http://47.106.130.54:1128'
@@ -46,12 +96,10 @@ app.get('/setOrUpdateToken', async (req, res) => {
 	try {
 		const existingToken = await Token.findOne({ phone })
 		if (existingToken) {
-            // 更新已有 Token
             existingToken.value = token
             existingToken.createdAt = new Date()
             await existingToken.save()
         } else {
-            // 创建新的 Token
             const newToken = new Token({ value: token, phone })
             await newToken.save()
         }
@@ -66,6 +114,61 @@ app.get('/getAllTokens', async (req, res) => {
     try {
         const tokens = await Token.find()
         res.send({ code: 200, message: '获取成功', data: tokens })
+    } catch (error) {
+        res.status(500).send({ code: 500, message: '服务器错误', error: error.message })
+    }
+});
+
+app.post('/generateLink', async (req, res) => {
+    const { uuid, phone, price, couponId, isClose } = req.body
+    if (!uuid || !phone || !price) {
+        return res.status(400).send({ code: 400, message: '请提供 uuid, phone 和 price 参数' })
+    }
+    try {
+        const newLink = new Link({
+            uuid,
+            phone,
+            price,
+            couponId: couponId || null,
+            isClose: isClose || false
+        })
+        await newLink.save()
+        res.send({ code: 200, message: '链接生成成功', data: newLink })
+    } catch (error) {
+        res.status(500).send({ code: 500, message: '服务器错误', error: error.message });
+    }
+});
+
+app.post('/closeLink', async (req, res) => {
+    const { uuid } = req.body
+    if (!uuid) {
+        return res.status(400).send({ code: 400, message: '请提供 uuid 参数' })
+    }
+    try {
+        const link = await Link.findOneAndUpdate(
+            { uuid },
+            { isClose: true }
+        )
+        if (!link) {
+            return res.status(404).send({ code: 404, message: '链接未找到' })
+        }
+        res.send({ code: 200, message: '链接关闭成功', data: link })
+    } catch (error) {
+        res.status(500).send({ code: 500, message: '服务器错误', error: error.message })
+    }
+})
+
+app.get('/isLinkClosed', async (req, res) => {
+    const { uuid } = req.query
+    if (!uuid) {
+        return res.status(400).send({ code: 400, message: '请提供 uuid 参数' })
+    }
+    try {
+        const link = await Link.findOne({ uuid })
+        if (!link) {
+            return res.status(404).send({ code: 404, message: '链接未找到' });
+        }
+        res.send({ code: 200, message: '查询成功', data: link.isClose })
     } catch (error) {
         res.status(500).send({ code: 500, message: '服务器错误', error: error.message })
     }
@@ -148,6 +251,7 @@ app.post('/settle', async (req, res) => {
 	let { products, shopId, price, signal, couponId, phone, remark } = req.body
 	try {
 		const tokenValue = await getTokenByPhone(phone)
+		const originPrice = Number(price)
 		if (couponId) {
 			const { data: coupon } = await axios.post(`https://vip.heytea.com/api/service-coupon/couponLibrary/detail?id=${couponId}`, {}, {
 				headers: {
@@ -201,7 +305,6 @@ app.post('/settle', async (req, res) => {
 				}
 			}
 		}
-		console.log(JSON.stringify(params))
 		const { data: result } = await axios.post(`https://go.heytea.com/api/service-oms-order/grayapi/order/submit`, params, {
 			headers: {
 				'Authorization': tokenValue,
@@ -234,7 +337,7 @@ app.post('/settle', async (req, res) => {
 			return
 		}
 		// 将 order_no 和 signal 存入 MongoDB
-        const orderSignal = new OrderSignal({ order_no, signal })
+        const orderSignal = new OrderSignal({ order_no, signal, phone, price: Number(price), originPrice })
         await orderSignal.save()
 
 		res.send({ code: 200, message: '下单成功', data: result1 })
