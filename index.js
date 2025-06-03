@@ -165,9 +165,6 @@ app.get('/isLinkClosed', async (req, res) => {
     }
     try {
         const link = await Link.findOne({ uuid })
-        if (!link) {
-            return res.status(404).send({ code: 404, message: '链接未找到' });
-        }
         res.send({ code: 200, message: '查询成功', data: link.isClose })
     } catch (error) {
         res.status(500).send({ code: 500, message: '服务器错误', error: error.message })
@@ -386,16 +383,31 @@ app.get('/orderDetail', async (req, res) => {
 
 // 查找优惠券
 app.post('/findCoupon', async (req, res) => {
-	const { phone } = req.query
+	const { phone, price } = req.query
 	try {
 		const tokenValue = await getTokenByPhone(phone)
-		const { data: result } = await axios.post(`https://vip.heytea.com/api/service-coupon/couponLibrary/unused-page/v2`, req.body, {
-			headers: {
-				'Content-Type': 'application/json',
-				'Authorization': tokenValue
+		const { data: result } = await axios.post(
+			`https://vip.heytea.com/api/service-coupon/couponLibrary/unused-page/v2`,
+			{ page: 1, size: 9999 },
+			{
+				headers: {
+					'Content-Type': 'application/json',
+					'Authorization': tokenValue
+				}
 			}
+		)
+		const coupons = result.data.records.map(m => {
+			if (m.couponType == 0 && m.thresholdText !== '无门槛') {
+				const regex = /(\d+)(\.\d+)?/
+				const match = m.thresholdText.match(regex)
+				if (match && price < +match[0]) {
+					m.disabled = true
+				}
+			}
+			return { ...m }
 		})
-		res.send({ code: 200, message: '获取成功', data: result.data })
+		
+		res.send({ code: 200, message: '获取成功', data: coupons })
 	} catch (err) {
 		res.send({ code: err.status, message: err?.response?.data.message || '请求失败' })
 	}
