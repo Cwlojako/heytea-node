@@ -73,8 +73,7 @@ const linkSchema = new Schema({
 const Link = mongoose.model('Link', linkSchema);
 
 const corsOptions = {
-	// origin: 'http://47.106.130.54:1128'
-	origin: '*'
+	origin: ['http://47.106.130.54:1128', 'http://47.106.130.54:8088']
 }
 
 app.use(cors(corsOptions))
@@ -140,19 +139,19 @@ app.post('/generateLink', async (req, res) => {
 });
 
 app.post('/closeLink', async (req, res) => {
-    const { uuid } = req.body
-    if (!uuid) {
-        return res.status(400).send({ code: 400, message: '请提供 uuid 参数' })
+    const { uuids } = req.body
+    if (!Array.isArray(uuids) || uuids.length === 0) {
+        return res.status(400).send({ code: 400, message: '请提供非空的 uuids 数组参数' })
     }
     try {
-        const link = await Link.findOneAndUpdate(
-            { uuid },
-            { isClose: true }
+        const result = await Link.updateMany(
+            { uuid: { $in: uuids } },
+            { isClose: true, couponId: null }
         )
-        if (!link) {
-            return res.status(404).send({ code: 404, message: '链接未找到' })
+        if (result.matchedCount === 0) {
+            return res.status(404).send({ code: 404, message: '未找到匹配的链接' })
         }
-        res.send({ code: 200, message: '链接关闭成功', data: link })
+        res.send({ code: 200, message: '链接批量关闭成功', data: result })
     } catch (error) {
         res.status(500).send({ code: 500, message: '服务器错误', error: error.message })
     }
@@ -386,6 +385,10 @@ app.post('/findCoupon', async (req, res) => {
 	const { phone, price } = req.query
 	try {
 		const tokenValue = await getTokenByPhone(phone)
+
+		const links = await Link.find({ phone })
+        const usedCouponIds = links.map(link => link.couponId).filter(id => id)
+
 		const { data: result } = await axios.post(
 			`https://vip.heytea.com/api/service-coupon/couponLibrary/unused-page/v2`,
 			{ page: 1, size: 9999 },
@@ -397,6 +400,10 @@ app.post('/findCoupon', async (req, res) => {
 			}
 		)
 		const coupons = result.data.records.map(m => {
+			if (usedCouponIds.includes(String(m.id))) {
+                m.disabled = true
+				m.disabledText = '已关联'
+            }
 			if (m.couponType == 0 && m.thresholdText !== '无门槛') {
 				const regex = /(\d+)(\.\d+)?/
 				const match = m.thresholdText.match(regex)
@@ -431,6 +438,6 @@ app.get('/getExpectTime', async (req, res) => {
 	}
 })
 
-app.listen(1129, () => {
+app.listen(8089, () => {
 	console.log("启动成功！")
 })
