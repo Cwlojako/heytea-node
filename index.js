@@ -55,6 +55,7 @@ const linkSchema = new Schema({
     price: { type: Number, required: true },
     couponId: { type: String, default: null },
     isClose: { type: Boolean, default: false },
+	url: { type: String, default: '' },
 	createdAt: { 
 		type: String,
 		default: () => {
@@ -119,7 +120,7 @@ app.get('/getAllTokens', async (req, res) => {
 });
 
 app.post('/generateLink', async (req, res) => {
-    const { uuid, phone, price, couponId, isClose } = req.body
+    const { uuid, phone, price, couponId, isClose, url } = req.body
     if (!uuid || !phone || !price) {
         return res.status(400).send({ code: 400, message: '请提供 uuid, phone 和 price 参数' })
     }
@@ -129,7 +130,8 @@ app.post('/generateLink', async (req, res) => {
             phone,
             price,
             couponId: couponId || null,
-            isClose: isClose || false
+            isClose: isClose || false,
+			url
         })
         await newLink.save()
         res.send({ code: 200, message: '链接生成成功', data: newLink })
@@ -438,6 +440,40 @@ app.get('/getExpectTime', async (req, res) => {
 	}
 })
 
-app.listen(8089, () => {
+app.post('/getLinks', async (req, res) => {
+    let { page = 1, size = 10, uuid, phone } = req.body
+    page = parseInt(page)
+    size = parseInt(size)
+
+    const filter = {}
+    if (uuid) {
+        filter.uuid = uuid
+    }
+    if (phone) {
+        filter.phone = { $regex: phone, $options: 'i' }
+    }
+    try {
+        const total = await Link.countDocuments(filter)
+        const links = await Link.find(filter)
+            .skip((page - 1) * size)
+            .limit(size)
+            .sort({ createdAt: -1 })
+
+        res.send({
+            code: 200,
+            message: '获取成功',
+            data: {
+                total,
+                page,
+                size,
+                list: links
+            }
+        })
+    } catch (error) {
+        res.status(500).send({ code: 500, message: '服务器错误', error: error.message })
+    }
+})
+
+app.listen(1129, () => {
 	console.log("启动成功！")
 })
