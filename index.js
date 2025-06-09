@@ -54,7 +54,11 @@ const linkSchema = new Schema({
     phone: { type: String, required: true },
     price: { type: Number, required: true },
     couponId: { type: String, default: null },
-    isClose: { type: Boolean, default: false },
+    status: { 
+        type: Number, 
+        enum: [0, 1, 2], 
+        default: 1 // 默认值为 1（生效中）
+    },
 	url: { type: String, default: '' },
 	createdAt: { 
 		type: String,
@@ -68,7 +72,8 @@ const linkSchema = new Schema({
             const seconds = String(date.getSeconds()).padStart(2, '0')
             return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`
         }
-	}
+	},
+	orderAt: { type: String }
 });
 
 const Link = mongoose.model('Link', linkSchema);
@@ -120,7 +125,7 @@ app.get('/getAllTokens', async (req, res) => {
 });
 
 app.post('/generateLink', async (req, res) => {
-    const { uuid, phone, price, couponId, isClose, url } = req.body
+    const { uuid, phone, price, couponId, url } = req.body
     if (!uuid || !phone || !price) {
         return res.status(400).send({ code: 400, message: '请提供 uuid, phone 和 price 参数' })
     }
@@ -130,7 +135,6 @@ app.post('/generateLink', async (req, res) => {
             phone,
             price,
             couponId: couponId || null,
-            isClose: isClose || false,
 			url
         })
         await newLink.save()
@@ -140,15 +144,15 @@ app.post('/generateLink', async (req, res) => {
     }
 });
 
-app.post('/closeLink', async (req, res) => {
-    const { uuids } = req.body
+app.post('/closeOrOpenLink', async (req, res) => {
+    const { uuids, close = true } = req.body
     if (!Array.isArray(uuids) || uuids.length === 0) {
         return res.status(400).send({ code: 400, message: '请提供非空的 uuids 数组参数' })
     }
     try {
         const result = await Link.updateMany(
             { uuid: { $in: uuids } },
-            { isClose: true, couponId: null }
+            { status: close ? 0 : 1, couponId: null }
         )
         if (result.matchedCount === 0) {
             return res.status(404).send({ code: 404, message: '未找到匹配的链接' })
@@ -166,7 +170,7 @@ app.get('/isLinkClosed', async (req, res) => {
     }
     try {
         const link = await Link.findOne({ uuid })
-        res.send({ code: 200, message: '查询成功', data: link.isClose })
+        res.send({ code: 200, message: '查询成功', data: +link.status === 0 })
     } catch (error) {
         res.status(500).send({ code: 500, message: '服务器错误', error: error.message })
     }
@@ -338,6 +342,12 @@ app.post('/settle', async (req, res) => {
         const orderSignal = new OrderSignal({ order_no, signal, phone, price: Number(price), originPrice })
         await orderSignal.save()
 
+		// 将链接状态置为已下单
+        const now = new Date()
+        const formattedTime = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`
+		
+		await Link.updateOne({ uuid: signal }, { $set: { status: 2, orderAt: formattedTime } })
+
 		res.send({ code: 200, message: '下单成功', data: result1 })
 	} catch (err) {
 		res.send({ code: err.status, message: err?.response?.data.message || '请求失败' })
@@ -474,6 +484,9 @@ app.post('/getLinks', async (req, res) => {
     }
 })
 
-app.listen(1129, () => {
+// app.listen(1129, () => {
+// 	console.log("启动成功！")
+// })
+app.listen(8089, () => {
 	console.log("启动成功！")
 })
