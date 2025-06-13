@@ -12,7 +12,7 @@ const tokenSchema = new Schema({
 	value: { type: String, required: true },
 	phone: { type: String, required: true },
 	createdAt: { 
-		type: Date,
+		type: String,
 		default: () => {
             const date = new Date()
             const year = date.getFullYear()
@@ -23,7 +23,8 @@ const tokenSchema = new Schema({
             const seconds = String(date.getSeconds()).padStart(2, '0')
             return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`
         }
-	}
+	},
+	updatedAt: { type: String }
 })
 const Token = mongoose.model('Token', tokenSchema)
 
@@ -74,7 +75,7 @@ const linkSchema = new Schema({
         }
 	},
 	orderAt: { type: String }
-});
+})
 
 const Link = mongoose.model('Link', linkSchema);
 
@@ -102,7 +103,9 @@ app.get('/setOrUpdateToken', async (req, res) => {
 		const existingToken = await Token.findOne({ phone })
 		if (existingToken) {
             existingToken.value = token
-            existingToken.createdAt = new Date()
+			const now = new Date()
+			const formattedTime = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`
+            existingToken.updatedAt = formattedTime
             await existingToken.save()
         } else {
             const newToken = new Token({ value: token, phone })
@@ -120,7 +123,7 @@ app.get('/getAllTokens', async (req, res) => {
         const tokens = await Token.find()
         res.send({ code: 200, message: '获取成功', data: tokens })
     } catch (error) {
-        res.status(500).send({ code: 500, message: '服务器错误', error: error.message })
+        res.status(500).send({ code: 500, message: '服务器错误' })
     }
 });
 
@@ -394,7 +397,7 @@ app.get('/orderDetail', async (req, res) => {
 
 // 查找优惠券
 app.post('/findCoupon', async (req, res) => {
-	const { phone, price } = req.query
+	const { phone, price } = req.body
 	try {
 		const tokenValue = await getTokenByPhone(phone)
 
@@ -477,6 +480,83 @@ app.post('/getLinks', async (req, res) => {
                 page,
                 size,
                 list: links
+            }
+        })
+    } catch (error) {
+        res.status(500).send({ code: 500, message: '服务器错误', error: error.message })
+    }
+})
+
+app.post('/getTokens', async (req, res) => {
+    let { page = 1, size = 10, phone } = req.body
+    page = parseInt(page)
+    size = parseInt(size)
+    const filter = {}
+    if (phone) {
+        filter.phone = { $regex: phone, $options: 'i' }
+    }
+    try {
+        const total = await Token.countDocuments(filter)
+        const tokens = await Token.find(filter)
+            .skip((page - 1) * size)
+            .limit(size)
+            .sort({ createdAt: -1 })
+
+        res.send({
+            code: 200,
+            message: '获取成功',
+            data: {
+                total,
+                page,
+                size,
+                list: tokens
+            }
+        })
+    } catch (error) {
+        res.status(500).send({ code: 500, message: '服务器错误', error: error.message })
+    }
+})
+
+app.post('/deleteTokens', async (req, res) => {
+    const { ids } = req.body;
+    if (!Array.isArray(ids) || ids.length === 0) {
+        return res.status(400).send({ code: 400, message: '请提供非空的 ids 数组参数' })
+    }
+
+    try {
+        const result = await Token.deleteMany({ _id: { $in: ids } })
+        if (result.deletedCount === 0) {
+            return res.status(404).send({ code: 404, message: '未找到匹配的 Token' })
+        }
+        res.send({ code: 200, message: '删除成功', data: result })
+    } catch (error) {
+        res.status(500).send({ code: 500, message: '服务器错误', error: error.message })
+    }
+})
+
+app.post('/getOrders', async (req, res) => {
+    let { page = 1, size = 10, phone } = req.body
+    page = parseInt(page)
+    size = parseInt(size)
+    const filter = {}
+    if (phone) {
+        filter.phone = { $regex: phone, $options: 'i' }
+    }
+    try {
+        const total = await OrderSignal.countDocuments(filter)
+        const orders = await OrderSignal.find(filter)
+            .skip((page - 1) * size)
+            .limit(size)
+			.sort({ createdAt: -1 })
+
+        res.send({
+            code: 200,
+            message: '获取成功',
+            data: {
+                total,
+                page,
+                size,
+                list: orders
             }
         })
     } catch (error) {
