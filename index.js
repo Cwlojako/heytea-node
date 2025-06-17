@@ -546,12 +546,23 @@ app.post('/deleteTokens', async (req, res) => {
 })
 
 app.post('/getOrders', async (req, res) => {
-    let { page = 1, size = 10, phone } = req.body
+    let { page = 1, size = 10, phone, date } = req.body
     page = parseInt(page)
     size = parseInt(size)
+	let startDate = ''
+	let endDate = ''
+
+	if (date && date.length) {
+		const [ s, e ] = date
+		startDate = s
+		endDate = e
+	}
     const filter = {}
     if (phone) {
         filter.phone = { $regex: phone, $options: 'i' }
+    }
+	if (startDate && endDate) {
+        filter.createdAt = { $gte: startDate, $lte: endDate }
     }
     try {
         const total = await OrderSignal.countDocuments(filter)
