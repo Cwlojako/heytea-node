@@ -8,21 +8,24 @@ const Schema = mongoose.Schema
 
 mongoose.connect('mongodb://cwlojako:chenweiqq0@47.106.130.54:27017/heytea')
 
+function getCurrentTime() {
+	const date = new Date()
+	const year = date.getFullYear()
+	const month = String(date.getMonth() + 1).padStart(2, '0')
+	const day = String(date.getDate()).padStart(2, '0')
+	const hours = String(date.getHours()).padStart(2, '0')
+	const minutes = String(date.getMinutes()).padStart(2, '0')
+	const seconds = String(date.getSeconds()).padStart(2, '0')
+	return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`
+}
+
 const tokenSchema = new Schema({
 	value: { type: String, required: true },
 	phone: { type: String, required: true },
+	groupId: { type: mongoose.Schema.Types.ObjectId, ref: 'Group', default: null },
 	createdAt: { 
 		type: String,
-		default: () => {
-            const date = new Date()
-            const year = date.getFullYear()
-            const month = String(date.getMonth() + 1).padStart(2, '0')
-            const day = String(date.getDate()).padStart(2, '0')
-            const hours = String(date.getHours()).padStart(2, '0')
-            const minutes = String(date.getMinutes()).padStart(2, '0')
-            const seconds = String(date.getSeconds()).padStart(2, '0')
-            return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`
-        }
+		default: () => getCurrentTime()
 	},
 	updatedAt: { type: String }
 })
@@ -36,16 +39,7 @@ const orderSignalSchema = new Schema({
 	originPrice: { type: Number, default: 0, required: true },
     createdAt: { 
 		type: String,
-		default: () => {
-            const date = new Date()
-            const year = date.getFullYear()
-            const month = String(date.getMonth() + 1).padStart(2, '0')
-            const day = String(date.getDate()).padStart(2, '0')
-            const hours = String(date.getHours()).padStart(2, '0')
-            const minutes = String(date.getMinutes()).padStart(2, '0')
-            const seconds = String(date.getSeconds()).padStart(2, '0')
-            return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`
-        }
+		default: () => getCurrentTime()
 	}
 })
 const OrderSignal = mongoose.model('OrderSignal', orderSignalSchema)
@@ -63,21 +57,20 @@ const linkSchema = new Schema({
 	url: { type: String, default: '' },
 	createdAt: { 
 		type: String,
-		default: () => {
-            const date = new Date()
-            const year = date.getFullYear()
-            const month = String(date.getMonth() + 1).padStart(2, '0')
-            const day = String(date.getDate()).padStart(2, '0')
-            const hours = String(date.getHours()).padStart(2, '0')
-            const minutes = String(date.getMinutes()).padStart(2, '0')
-            const seconds = String(date.getSeconds()).padStart(2, '0')
-            return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`
-        }
+		default: () => getCurrentTime()
 	},
 	orderAt: { type: String }
 })
+const Link = mongoose.model('Link', linkSchema)
 
-const Link = mongoose.model('Link', linkSchema);
+const groupSchema = new Schema({
+    name: { type: String, required: true },
+    createdAt: { 
+        type: String,
+        default: () => getCurrentTime()
+    }
+})
+const Group = mongoose.model('Group', groupSchema)
 
 const corsOptions = {
 	origin: ['http://47.106.130.54:1128', 'http://47.106.130.54:8088']
@@ -93,8 +86,8 @@ async function getTokenByPhone(phone) {
 }
 
 // 设置TOKEN
-app.get('/setOrUpdateToken', async (req, res) => {
-	const { token, phone } = req.query
+app.post('/setOrUpdateToken', async (req, res) => {
+	const { token, phone, groupId = null } = req.body
 	if (!token || !phone) {
 		res.send({ code: 400, message: '请提供token 和 phone参数' })
 		return
@@ -103,12 +96,13 @@ app.get('/setOrUpdateToken', async (req, res) => {
 		const existingToken = await Token.findOne({ phone })
 		if (existingToken) {
             existingToken.value = token
+			groupId && (existingToken.groupId = groupId)
 			const now = new Date()
 			const formattedTime = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`
             existingToken.updatedAt = formattedTime
             await existingToken.save()
         } else {
-            const newToken = new Token({ value: token, phone })
+            const newToken = new Token({ value: token, phone, groupId })
             await newToken.save()
         }
         res.send({ code: 200, message: '设置成功' })
@@ -125,7 +119,7 @@ app.get('/getAllTokens', async (req, res) => {
     } catch (error) {
         res.status(500).send({ code: 500, message: '服务器错误' })
     }
-});
+})
 
 app.post('/generateLink', async (req, res) => {
     const { uuid, phone, price, couponId, url } = req.body
@@ -145,7 +139,7 @@ app.post('/generateLink', async (req, res) => {
     } catch (error) {
         res.status(500).send({ code: 500, message: '服务器错误', error: error.message });
     }
-});
+})
 
 app.post('/closeOrOpenLink', async (req, res) => {
     const { uuids, close = true } = req.body
@@ -177,7 +171,7 @@ app.get('/isLinkClosed', async (req, res) => {
     } catch (error) {
         res.status(500).send({ code: 500, message: '服务器错误', error: error.message })
     }
-});
+})
 
 // 查找门店
 app.post('/findStore', async (req, res) => {
@@ -454,16 +448,33 @@ app.get('/getExpectTime', async (req, res) => {
 })
 
 app.post('/getLinks', async (req, res) => {
-    let { page = 1, size = 10, uuid, phone } = req.body
+    let { page = 1, size = 10, uuid, phone, status, date, price } = req.body
     page = parseInt(page)
     size = parseInt(size)
 
+	let startDate = ''
+	let endDate = ''
+
+	if (date && date.length) {
+		const [ s, e ] = date
+		startDate = s
+		endDate = e
+	}
     const filter = {}
     if (uuid) {
         filter.uuid = uuid
     }
+	if (String(status)) {
+        filter.status = status
+    }
     if (phone) {
         filter.phone = { $regex: phone, $options: 'i' }
+    }
+	if (price) {
+        filter.price = price
+    }
+	if (startDate && endDate) {
+        filter.createdAt = { $gte: startDate, $lte: endDate }
     }
     try {
         const total = await Link.countDocuments(filter)
@@ -559,6 +570,65 @@ app.post('/getOrders', async (req, res) => {
                 list: orders
             }
         })
+    } catch (error) {
+        res.status(500).send({ code: 500, message: '服务器错误', error: error.message })
+    }
+})
+
+app.post('/addGroup', async (req, res) => {
+    const { name } = req.body
+    if (!name) {
+        return res.status(400).send({ code: 400, message: '请提供分组名称' })
+    }
+    try {
+        const newGroup = new Group({ name })
+        await newGroup.save()
+        res.send({ code: 200, message: '分组添加成功', data: newGroup })
+    } catch (error) {
+        res.status(500).send({ code: 500, message: '服务器错误', error: error.message })
+    }
+})
+
+app.post('/editGroup', async (req, res) => {
+    const { groupId, name } = req.body
+    if (!groupId || !name) {
+        return res.status(400).send({ code: 400, message: '请提供分组ID和新的分组名称' })
+    }
+    try {
+        const group = await Group.findById(groupId)
+        if (!group) {
+            return res.status(404).send({ code: 404, message: '分组不存在' })
+        }
+        group.name = name
+        await group.save()
+        res.send({ code: 200, message: '分组名称修改成功', data: group })
+    } catch (error) {
+        res.status(500).send({ code: 500, message: '服务器错误', error: error.message })
+    }
+})
+
+app.post('/assignTokenToGroup', async (req, res) => {
+    const { tokenId, groupId } = req.body
+    if (!tokenId || !groupId) {
+        return res.status(400).send({ code: 400, message: '请提供Token ID和分组ID' })
+    }
+    try {
+        const token = await Token.findById(tokenId)
+        if (!token) {
+            return res.status(404).send({ code: 404, message: 'Token不存在' })
+        }
+        token.groupId = groupId
+        await token.save()
+        res.send({ code: 200, message: 'Token分组成功', data: token })
+    } catch (error) {
+        res.status(500).send({ code: 500, message: '服务器错误', error: error.message })
+    }
+})
+
+app.get('/getGroups', async (req, res) => {
+    try {
+        const groups = await Group.find().sort({ createdAt: -1 })
+        res.send({ code: 200, message: '获取分组列表成功', data: groups })
     } catch (error) {
         res.status(500).send({ code: 500, message: '服务器错误', error: error.message })
     }
