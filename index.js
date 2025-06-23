@@ -121,21 +121,49 @@ app.get('/getAllTokens', async (req, res) => {
     }
 })
 
+async function createLink({ uuid, phone, price, couponId, url }) {
+    const newLink = new Link({
+        uuid,
+        phone,
+        price,
+        couponId: couponId || null,
+        url
+    })
+    await newLink.save()
+    return newLink
+}
+
 app.post('/generateLink', async (req, res) => {
     const { uuid, phone, price, couponId, url } = req.body
     if (!uuid || !phone || !price) {
         return res.status(400).send({ code: 400, message: '请提供 uuid, phone 和 price 参数' })
     }
     try {
-        const newLink = new Link({
-            uuid,
-            phone,
-            price,
-            couponId: couponId || null,
-			url
-        })
-        await newLink.save()
+        const newLink = await createLink({ uuid, phone, price, couponId, url })
         res.send({ code: 200, message: '链接生成成功', data: newLink })
+    } catch (error) {
+        res.status(500).send({ code: 500, message: '服务器错误', error: error.message });
+    }
+})
+
+app.post('/generateLinksBatch', async (req, res) => {
+    const { uuids, phone, price, couponIds, urls } = req.body
+    if (!Array.isArray(uuids) || !uuids.length || !phone || !price) {
+        return res.status(400).send({ code: 400, message: '请提供正确参数' })
+    }
+    try {
+		const links = []
+		for (let i = 0; i < uuids.length; i++) {
+			const link = await createLink({ 
+				uuid: uuids[i],
+				phone,
+				price,
+				couponId: couponIds[i] || null,
+				url: urls[i]
+			})
+			links.push(link)
+		}
+        res.send({ code: 200, message: '链接批量生成成功', data: links })
     } catch (error) {
         res.status(500).send({ code: 500, message: '服务器错误', error: error.message });
     }
@@ -171,6 +199,19 @@ app.get('/isLinkClosed', async (req, res) => {
     } catch (error) {
         res.status(500).send({ code: 500, message: '服务器错误', error: error.message })
     }
+})
+
+app.post('/batchDelLink', async (req, res) => {
+	try {
+		const { ids } = req.body
+		if (!Array.isArray(ids) || ids.length === 0) {
+			return res.status(400).send({ message: '请提供要删除的ID数组' })
+		}
+		const result = await Link.deleteMany({ _id: { $in: ids } })
+		res.send({ code: 200, message: '批量删除成功', data: result.deletedCount })
+	} catch (error) {
+		res.status(500).send({ message: '服务器错误', error: error.message })
+	}
 })
 
 // 查找门店
