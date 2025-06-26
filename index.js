@@ -5,6 +5,8 @@ const bodyParser = require("body-parser")
 const app = express()
 const mongoose = require('mongoose')
 const Schema = mongoose.Schema
+const crypto = require('./utils/crypto')
+const Decimal = require('decimal.js')
 
 mongoose.connect('mongodb://cwlojako:chenweiqq0@47.106.130.54:27017/heytea')
 
@@ -214,6 +216,55 @@ app.post('/batchDelLink', async (req, res) => {
 	}
 })
 
+app.get('/getLinkDetails', async (req, res) => {
+    const { uuid } = req.query
+    if (!uuid) {
+        return res.status(400).send({ code: 400, message: '请提供 uuid 参数' })
+    }
+    try {
+        const link = await Link.findOne({ uuid }, { phone: 1, price: 1, _id: 0 })
+        if (!link) {
+            return res.status(404).send({ code: 404, message: '未找到对应的链接' })
+        }
+        res.send({ 
+			code: 200,
+			message: '查询成功',
+			data: {
+				price: crypto.encrypt(link.price),
+				phone: crypto.encrypt(link.phone)
+			}
+		})
+    } catch (error) {
+        res.status(500).send({ code: 500, message: '服务器错误', error: error.message })
+    }
+})
+
+app.post('/batchBindCoupon', async (req, res) => {
+    const { uuids, couponIds } = req.body
+    if (!Array.isArray(uuids) || !Array.isArray(couponIds) || uuids.length !== couponIds.length || uuids.length === 0) {
+        return res.status(400).send({ code: 400, message: '请提供等长且非空的 uuids 和 couponIds 数组参数' })
+    }
+    try {
+        const links = await Link.find({ uuid: { $in: uuids } })
+        const bulkOps = uuids.map((uuid, idx) => {
+            const link = links.find(l => l.uuid === uuid)
+            let newUrl = link?.url || ''
+            newUrl = newUrl.replace(/&c=[^&]*/g, '')
+            newUrl += `&c=${couponIds[idx]}`
+            return {
+                updateOne: {
+                    filter: { uuid },
+                    update: { $set: { couponId: couponIds[idx], url: newUrl } }
+                }
+            }
+        })
+        const result = await Link.bulkWrite(bulkOps)
+        res.send({ code: 200, message: '批量关联优惠券成功', data: result })
+    } catch (error) {
+        res.status(500).send({ code: 500, message: '服务器错误', error: error.message })
+    }
+})
+
 // 查找门店
 app.post('/findStore', async (req, res) => {
 	const { name, loadShopIds, phone } = req.body
@@ -298,11 +349,30 @@ app.post('/settle', async (req, res) => {
 					'Authorization': tokenValue
 				}
 			})
-			if (coupon.data.couponType === 0) {
-				const p = price - +coupon.data.discountText
+			const { couponType, discountText, upLimitText } = coupon.data
+			if (couponType === 0) { // 满减券
+				const p = price - +discountText
 				price = p < 0 ? 0 : p
-			} else if (coupon.data.couponType === 3) {
-				price = (price * (+coupon.data.discountText / 10)).toFixed(2)
+			} else if (couponType === 3) { // 折扣券
+				if (coupon.data.name === '第二杯半价券') {
+					price = Decimal(price).mul(Decimal(0.75)).toNumber()
+				} else {
+					const discount = (Decimal(price) - (Decimal(price).mul(Decimal(discountText).div(Decimal(10))))).toNumber()
+					if (upLimitText) {
+						let highestDiscount = upLimitText.match(/\d+/)[0]
+						if (discount >= highestDiscount) {
+							price = price - highestDiscount
+						} else {
+							price = (Decimal(price).mul(Decimal(discountText).div(Decimal(10)))).toNumber()
+						}
+					} else {
+						price = (Decimal(price).mul(Decimal(discountText).div(Decimal(10)))).toNumber()
+					}
+				}
+			} else if (couponType === 2) { // 买赠券
+				price = price / 2
+			} else if (couponType === 1) { // 赠饮券
+				price = 0
 			}
 		}
 		let params = {
@@ -315,7 +385,7 @@ app.post('/settle', async (req, res) => {
 				"efficiency_time": 0,
 				"shop_limit_time": 0,
 				"period_id": null,
-				"phone": phone || '13202547840',
+				"phone": phone,
 				"remarks": remark,
 				"is_takeaway": 0,
 				"box_fee": 0,
@@ -382,7 +452,7 @@ app.post('/settle', async (req, res) => {
 
 		// 将链接状态置为已下单
         const now = new Date()
-        const formattedTime = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`
+        const formattedTime = getCurrentTime()
 		
 		await Link.updateOne({ uuid: signal }, { $set: { status: 2, orderAt: formattedTime } })
 
