@@ -451,7 +451,6 @@ app.post('/settle', async (req, res) => {
         await orderSignal.save()
 
 		// 将链接状态置为已下单
-        const now = new Date()
         const formattedTime = getCurrentTime()
 		
 		await Link.updateOne({ uuid: signal }, { $set: { status: 2, orderAt: formattedTime } })
@@ -543,7 +542,6 @@ app.post('/findCoupon', async (req, res) => {
 // 查询预计制作时间
 app.get('/getExpectTime', async (req, res) => {
 	const { orderId, orderNo, phone } = req.query
-	console.log(req.query)
 	try {
 		const tokenValue = await getTokenByPhone(phone)
 		const { data: result } = await axios.get(`https://go.heytea.com/api/service-ofc-promise/grayapi/agent/expect-time/order?query=${orderId}&orderNoList=${orderNo}`, {
@@ -657,7 +655,7 @@ app.post('/deleteTokens', async (req, res) => {
 })
 
 app.post('/getOrders', async (req, res) => {
-    let { page = 1, size = 10, phone, date } = req.body
+    let { page = 1, size = 10, phone, date, signal } = req.body
     page = parseInt(page)
     size = parseInt(size)
 	let startDate = ''
@@ -671,6 +669,9 @@ app.post('/getOrders', async (req, res) => {
     const filter = {}
     if (phone) {
         filter.phone = { $regex: phone, $options: 'i' }
+    }
+	if (signal) {
+        filter.signal = { $regex: signal, $options: 'i' }
     }
 	if (startDate && endDate) {
         filter.createdAt = { $gte: startDate, $lte: endDate }
@@ -754,6 +755,21 @@ app.get('/getGroups', async (req, res) => {
     } catch (error) {
         res.status(500).send({ code: 500, message: '服务器错误', error: error.message })
     }
+})
+
+app.post('/refund', async (req, res) => {
+	const { uuid } = req.body
+	if (!uuid) {
+        return res.status(400).send({ code: 400, message: '请提供uuid' })
+    }
+	try {
+		const link = await Link.findOne({ uuid })
+		let url = link.url
+		url = url.replace(/&c=[^&]*/g, '')
+		await Link.updateOne({ uuid }, { $set: { status: 3, url, couponId: null } })
+	} catch (error) {
+		res.status(500).send({ code: 500, message: '服务器错误', error: error.message })
+	}
 })
 
 // app.listen(1129, () => {
