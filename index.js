@@ -53,7 +53,7 @@ const linkSchema = new Schema({
     couponId: { type: String, default: null },
     status: { 
         type: Number, 
-        enum: [0, 1, 2], 
+        enum: [0, 1, 2, 3], 
         default: 1 // 默认值为 1（生效中）
     },
 	url: { type: String, default: '' },
@@ -349,12 +349,12 @@ app.post('/settle', async (req, res) => {
 					'Authorization': tokenValue
 				}
 			})
-			const { couponType, discountText, upLimitText } = coupon.data
+			const { couponType, discountText, upLimitText, name } = coupon.data
 			if (couponType === 0) { // 满减券
 				const p = price - +discountText
 				price = p < 0 ? 0 : p
 			} else if (couponType === 3) { // 折扣券
-				if (coupon.data.name === '第二杯半价券') {
+				if (name === '第二杯半价券') {
 					price = Decimal(price).mul(Decimal(0.75)).toNumber()
 				} else {
 					const discount = Decimal(price) - (Decimal(price).mul(Decimal(discountText).div(Decimal(10))))
@@ -377,6 +377,12 @@ app.post('/settle', async (req, res) => {
 				price = 0
 			}
 		}
+		const groupId = (await Token.findOne({ phone })).groupId
+		const groupName = (await Group.findById(groupId)).name
+		let attachRemarkText = ''
+		if (groupName === 'CW') {
+			attachRemarkText = `【有问题请联系电话13202547840， 不要打账号电话】`
+		}
 		let params = {
 			apiOrderSubmitForm: {
 				"client": 1,
@@ -388,7 +394,7 @@ app.post('/settle', async (req, res) => {
 				"shop_limit_time": 0,
 				"period_id": null,
 				"phone": phone,
-				"remarks": remark,
+				"remarks": remark + attachRemarkText,
 				"is_takeaway": 0,
 				"box_fee": 0,
 				"total_fee": Number(price),
@@ -459,6 +465,7 @@ app.post('/settle', async (req, res) => {
 
 		res.send({ code: 200, message: '下单成功', data: result1 })
 	} catch (err) {
+		console.log('-----', err)
 		res.send({ code: err.status, message: err?.response?.data.message || '请求失败' })
 	}
 })
@@ -559,7 +566,7 @@ app.get('/getExpectTime', async (req, res) => {
 })
 
 app.post('/getLinks', async (req, res) => {
-    let { page = 1, size = 10, uuid, phone, status, date, price } = req.body
+    let { page = 1, size = 10, uuid, phone, status, date, price, couponId } = req.body
     page = parseInt(page)
     size = parseInt(size)
 
@@ -574,6 +581,9 @@ app.post('/getLinks', async (req, res) => {
     const filter = {}
     if (uuid) {
         filter.uuid = uuid
+    }
+	if (couponId) {
+        filter.couponId = couponId
     }
 	if (String(status)) {
         filter.status = status
@@ -760,15 +770,15 @@ app.get('/getGroups', async (req, res) => {
 })
 
 app.post('/refund', async (req, res) => {
-	const { uuid } = req.body
-	if (!uuid) {
-        return res.status(400).send({ code: 400, message: '请提供uuid' })
+	const { _id } = req.body
+	if (!_id) {
+        return res.status(400).send({ code: 400, message: '请提供_id' })
     }
 	try {
-		const link = await Link.findOne({ uuid })
+		const link = await Link.findById(_id)
 		let url = link.url
 		url = url.replace(/&c=[^&]*/g, '')
-		await Link.updateOne({ uuid }, { $set: { status: 3, url, couponId: null } })
+		await Link.updateOne({ _id }, { $set: { status: 3, url, couponId: null } })
 		res.send({ code: 200, message: '退款成功' })
 	} catch (error) {
 		res.status(500).send({ code: 500, message: '服务器错误', error: error.message })
