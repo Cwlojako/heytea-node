@@ -357,21 +357,23 @@ app.post('/settle', async (req, res) => {
 				if (coupon.data.name === '第二杯半价券') {
 					price = Decimal(price).mul(Decimal(0.75)).toNumber()
 				} else {
-					const discount = (Decimal(price) - (Decimal(price).mul(Decimal(discountText).div(Decimal(10))))).toNumber()
+					const discount = Decimal(price) - (Decimal(price).mul(Decimal(discountText).div(Decimal(10))))
 					if (upLimitText) {
 						let highestDiscount = upLimitText.match(/\d+/)[0]
 						if (discount >= highestDiscount) {
 							price = price - highestDiscount
 						} else {
-							price = (Decimal(price).mul(Decimal(discountText).div(Decimal(10)))).toNumber()
+							price = Decimal(price).mul(Decimal(discountText).div(Decimal(10)))
 						}
 					} else {
-						price = (Decimal(price).mul(Decimal(discountText).div(Decimal(10)))).toNumber()
+						price = Decimal(price).mul(Decimal(discountText).div(Decimal(10)))
 					}
 				}
 			} else if (couponType === 2) { // 买赠券
 				price = price / 2
 			} else if (couponType === 1) { // 赠饮券
+				price = 0
+			} else if (couponType === 5) { // 现金券
 				price = 0
 			}
 		}
@@ -767,11 +769,50 @@ app.post('/refund', async (req, res) => {
 		let url = link.url
 		url = url.replace(/&c=[^&]*/g, '')
 		await Link.updateOne({ uuid }, { $set: { status: 3, url, couponId: null } })
+		res.send({ code: 200, message: '退款成功' })
 	} catch (error) {
 		res.status(500).send({ code: 500, message: '服务器错误', error: error.message })
 	}
 })
 
+app.post('/exchangeCoupon', async (req, res) => {
+    const { codes, phone } = req.body
+    if (!Array.isArray(codes) || codes.length === 0) {
+        return res.status(400).send({ code: 400, message: '请提供非空的 codes 数组参数' })
+    }
+    const tokenValue = await getTokenByPhone(phone)
+    const api = `https://vip.heytea.com/api/service-member/vip/coupon-library/coupon/exchange`
+    try {
+        const results = []
+        for (let i = 0; i < codes.length; i++) {
+            const m = codes[i]
+            console.log(`正在兑换 ${m}...`)
+			const { data: result } = await axios.post(api, { code: m }, {
+				headers: {
+					'Content-Type': 'application/json',
+					'Authorization': tokenValue
+				}
+			})
+			if (result.code === 0) {
+				results.push({ isMaking: true })
+			} else {
+				results.push({ isMaking: false, message: result.message, code: m })
+			}
+            
+            if (i < codes.length - 1) {
+                await new Promise(resolve => setTimeout(resolve, 4000))
+            }
+        }
+        if (results.every(e => e.isMaking)) {
+            res.send({ code: 200, message: '兑换成功' })
+        } else {
+            const message = results.filter(e => !e.isMaking).map(m => `${m.code} ${m.message}`).join('<br/>')
+            res.send({ code: 500, message })
+        }
+    } catch (error) {
+        res.status(500).send({ code: 500, message: '服务器错误', error: error.message })
+    }
+})
 // app.listen(1129, () => {
 // 	console.log("启动成功！")
 // })
