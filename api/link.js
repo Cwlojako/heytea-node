@@ -3,15 +3,19 @@ const router = express.Router()
 const Link = require('../schema/linkSchema')
 const Group = require('../schema/groupSchema')
 const Token = require('../schema/tokenSchema')
-const crypto = require('../utils/crypto')
+const { getUser } = require('../utils/index')
 
-async function createLink({ uuid, phone, price, couponId, url }) {
+async function createLink({ uuid, phone, price, couponId, url, authHeader }) {
+    const t = await Token.findOne({ phone })
+    const user = await getUser(authHeader)
     const newLink = new Link({
         uuid,
         phone,
         price,
         couponId: couponId || null,
-        url
+        url,
+        groupId: t ? t.groupId : null,
+        ownerId: user._id
     })
     await newLink.save()
     return newLink
@@ -19,11 +23,12 @@ async function createLink({ uuid, phone, price, couponId, url }) {
 
 router.post('/generateLink', async (req, res) => {
     const { uuid, phone, price, couponId, url } = req.body
+    const authHeader = req.headers['authorization']
     if (!uuid || !phone || !price) {
         return res.status(400).send({ code: 400, message: '请提供 uuid, phone 和 price 参数' })
     }
     try {
-        const newLink = await createLink({ uuid, phone, price, couponId, url })
+        const newLink = await createLink({ uuid, phone, price, couponId, url, authHeader })
         res.send({ code: 200, message: '链接生成成功', data: newLink })
     } catch (error) {
         res.status(500).send({ code: 500, message: '服务器错误', error: error.message });
@@ -32,6 +37,7 @@ router.post('/generateLink', async (req, res) => {
 
 router.post('/generateLinksBatch', async (req, res) => {
     const { uuids, phone, price, couponIds, urls } = req.body
+    const authHeader = req.headers['authorization']
     if (!Array.isArray(uuids) || !uuids.length || !phone || !price) {
         return res.status(400).send({ code: 400, message: '请提供正确参数' })
     }
@@ -43,7 +49,8 @@ router.post('/generateLinksBatch', async (req, res) => {
                 phone,
                 price,
                 couponId: couponIds[i] || null,
-                url: urls[i]
+                url: urls[i],
+                authHeader
             })
             links.push(link)
         }
@@ -72,19 +79,6 @@ router.post('/closeOrOpenLink', async (req, res) => {
     }
 })
 
-router.get('/isLinkClosed', async (req, res) => {
-    const { uuid } = req.query
-    if (!uuid) {
-        return res.status(400).send({ code: 400, message: '请提供 uuid 参数' })
-    }
-    try {
-        const link = await Link.findOne({ uuid })
-        res.send({ code: 200, message: '查询成功', data: +link.status === 0 })
-    } catch (error) {
-        res.status(500).send({ code: 500, message: '服务器错误', error: error.message })
-    }
-})
-
 router.post('/batchDelLink', async (req, res) => {
     try {
         const { ids } = req.body
@@ -98,31 +92,10 @@ router.post('/batchDelLink', async (req, res) => {
     }
 })
 
-router.get('/getLinkDetails', async (req, res) => {
-    const { uuid } = req.query
-    if (!uuid) {
-        return res.status(400).send({ code: 400, message: '请提供 uuid 参数' })
-    }
-    try {
-        const link = await Link.findOne({ uuid }, { phone: 1, price: 1, _id: 0 })
-        if (!link) {
-            return res.status(404).send({ code: 404, message: '未找到对应的链接' })
-        }
-        res.send({ 
-            code: 200,
-            message: '查询成功',
-            data: {
-                price: crypto.encrypt(link.price),
-                phone: crypto.encrypt(link.phone)
-            }
-        })
-    } catch (error) {
-        res.status(500).send({ code: 500, message: '服务器错误', error: error.message })
-    }
-})
-
 router.post('/getLinks', async (req, res) => {
-    let { page = 1, size = 10, uuid, phone, status, date, price } = req.body
+    let { page = 1, size = 10, uuid, phone, status, date, price, couponId } = req.body
+    const authHeader = req.headers['authorization']
+    const user = await getUser(authHeader)
     page = parseInt(page)
     size = parseInt(size)
 
@@ -135,8 +108,14 @@ router.post('/getLinks', async (req, res) => {
         endDate = e
     }
     const filter = {}
+    if (!user.roles.includes('Admin') && !user.roles.includes('Developer')) {
+        filter.ownerId = user._id
+    }
     if (uuid) {
         filter.uuid = uuid
+    }
+    if (couponId) {
+        filter.couponId = couponId
     }
     if (String(status)) {
         filter.status = status
@@ -159,9 +138,8 @@ router.post('/getLinks', async (req, res) => {
 
         const result = await Promise.all(links.map(async link => {
             let groupName = ''
-            const t = await Token.findOne({ phone: link.phone })
-            if (t.groupId) {
-                const group = await Group.findById(t.groupId)
+            if (link.groupId) {
+                const group = await Group.findById(link.groupId)
                 groupName = group ? group.name : ''
             }
             return {

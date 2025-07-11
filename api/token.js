@@ -1,12 +1,13 @@
 const express = require('express')
 const router = express.Router()
-const { getCurrentTime } = require('../utils/index')
+const { getCurrentTime, getUser } = require('../utils/index')
 const Token = require('../schema/tokenSchema')
 const Group = require('../schema/groupSchema')
 
 //更新或新增Token
 router.post('/setOrUpdateToken', async (req, res) => {
 	const { token, phone, groupId = null } = req.body
+    const authHeader = req.headers['authorization']
 	if (!token || !phone) {
 		res.send({ code: 400, message: '请提供token 和 phone参数' })
 		return
@@ -20,7 +21,8 @@ router.post('/setOrUpdateToken', async (req, res) => {
             existingToken.updatedAt = formattedTime
             await existingToken.save()
         } else {
-            const newToken = new Token({ value: token, phone, groupId })
+            const user = await getUser(authHeader)
+            const newToken = new Token({ value: token, phone, groupId, ownerId: user._id })
             await newToken.save()
         }
         res.send({ code: 200, message: '设置成功' })
@@ -31,8 +33,14 @@ router.post('/setOrUpdateToken', async (req, res) => {
 
 // 获取Token列表
 router.get('/getAllTokens', async (req, res) => {
+    const authHeader = req.headers['authorization']
     try {
-        const tokens = await Token.find()
+        const user = await getUser(authHeader)
+        const filter = {}
+        if (!user.roles.includes('Admin') && !user.roles.includes('Developer')) {
+            filter.ownerId = user._id
+        }
+        const tokens = await Token.find(filter)
         res.send({ code: 200, message: '获取成功', data: tokens })
     } catch (error) {
         res.status(500).send({ code: 500, message: '服务器错误' })
@@ -42,9 +50,14 @@ router.get('/getAllTokens', async (req, res) => {
 // 获取分页的Token列表
 router.post('/getTokens', async (req, res) => {
     let { page = 1, size = 10, phone } = req.body
+    const authHeader = req.headers['authorization']
+    const user = await getUser(authHeader)
     page = parseInt(page)
     size = parseInt(size)
     const filter = {}
+    if (!user.roles.includes('Admin') && !user.roles.includes('Developer')) {
+        filter.ownerId = user._id
+    }
     if (phone) {
         filter.phone = { $regex: phone, $options: 'i' }
     }

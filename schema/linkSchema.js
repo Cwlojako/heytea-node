@@ -8,6 +8,7 @@ const linkSchema = new Schema({
     price: { type: Number, required: true },
     couponId: { type: String, default: null },
     groupId: { type: mongoose.Schema.Types.ObjectId, ref: 'Group', default: null },
+    ownerId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
     status: {
         type: Number,
         enum: [0, 1, 2, 3], // 0: 已关闭, 1: 生效中, 2: 已关闭, 3: 已退款

@@ -11,7 +11,8 @@ const orderSignalSchema = new Schema({
     createdAt: { 
 		type: String,
 		default: () => getCurrentTime()
-	}
+	},
+	groupId: { type: mongoose.Schema.Types.ObjectId, ref: 'Group', default: null }
 })
 const OrderSignal = mongoose.model('OrderSignal', orderSignalSchema)
 

@@ -2,8 +2,9 @@ const express = require('express')
 const router = express.Router()
 const axios = require('axios')
 const OrderSignal = require('../schema/orderSignalSchema')
-const Token = require('../schema/tokenSchema')
 const Group = require('../schema/groupSchema')
+const Token = require('../schema/tokenSchema')
+const { getUser } = require('../utils/index')
 
 async function getTokenByPhone(phone) {
     const token = await Token.findOne({ phone }).sort({ createdAt: -1 })
@@ -11,7 +12,9 @@ async function getTokenByPhone(phone) {
 }
 
 router.post('/getOrders', async (req, res) => {
-    let { page = 1, size = 10, phone, date, signal } = req.body
+    let { page = 1, size = 10, phone, date, signal, groups } = req.body
+    const authHeader = req.headers['authorization']
+    const user = await getUser(authHeader)
     page = parseInt(page)
     size = parseInt(size)
 	let startDate = ''
@@ -23,8 +26,14 @@ router.post('/getOrders', async (req, res) => {
 		endDate = e
 	}
     const filter = {}
+    if (!user.roles.includes('Admin') && !user.roles.includes('Developer')) {
+        filter.ownerId = user._id
+    }
     if (phone) {
         filter.phone = { $regex: phone, $options: 'i' }
+    }
+    if (groups && groups.length) {
+        filter.groupId = { $in: groups }
     }
 	if (signal) {
         filter.signal = { $regex: signal, $options: 'i' }
@@ -41,9 +50,8 @@ router.post('/getOrders', async (req, res) => {
 
         const result = await Promise.all(orders.map(async order => {
             let groupName = ''
-            const t = await Token.findOne({ phone: order.phone })
-            if (t.groupId) {
-                const group = await Group.findById(t.groupId)
+            if (order.groupId) {
+                const group = await Group.findById(order.groupId)
                 groupName = group ? group.name : ''
             }
             return {

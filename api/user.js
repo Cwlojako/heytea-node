@@ -2,6 +2,7 @@ const express = require('express')
 const router = express.Router()
 const jwt = require('jsonwebtoken')
 const User = require('../schema/userSchema')
+const crypto = require('../utils/crypto')
 
 const SECRET = 'cwlojako'
 
@@ -18,11 +19,14 @@ router.post('/login', async (req, res) => {
 			memberLevel: user.memberLevel,
 			roles: user.roles
 		}, SECRET, { expiresIn: '2h' }
-	)	
+	)
+	const result = {
+		username, token, memberLevel: user.memberLevel, roles: user.roles
+	}
 	res.send({
 		code: 200,
 		message: '登录成功',
-		data: { username, token, memberLevel: user.memberLevel, roles: user.roles }
+		data: crypto.encrypt(JSON.stringify(result))
 	})
 })
 

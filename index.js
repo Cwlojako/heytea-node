@@ -28,7 +28,7 @@ app.use(bodyParser.json())
 app.use((req, res, next) => {
 	// 白名单
 	const whiteApi = ['/user/login']
-	if (whiteApi.includes(req.path)) {
+	if (whiteApi.includes(req.path) || req.path.startsWith('/client')) {
 		return next()
 	}
 	const auth = req.headers.authorization
@@ -47,7 +47,7 @@ app.use((req, res, next) => {
 
 app.use('/token', tokenRouter) // 处理 /token 路由
 app.use('/link', LinkRouter) // 处理 /link 路由
-app.use('/cilent', clientRouter) // 处理 /client 路由
+app.use('/client', clientRouter) // 处理 /client 路由
 app.use('/group', groupRouter) // 处理 /group 路由
 app.use('/coupon', couponRouter) // 处理 /coupon 路由
 app.use('/order', orderRouter) // 处理 /order 路由

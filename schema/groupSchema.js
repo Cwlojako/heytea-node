@@ -7,7 +7,8 @@ const groupSchema = new Schema({
     createdAt: { 
         type: String,
         default: () => getCurrentTime()
-    }
+    },
+    ownerId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null }
 })
 const Group = mongoose.model('Group', groupSchema)
 

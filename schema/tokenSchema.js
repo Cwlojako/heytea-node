@@ -6,6 +6,7 @@ const tokenSchema = new Schema({
     value: { type: String, required: true },
     phone: { type: String, required: true },
     groupId: { type: mongoose.Schema.Types.ObjectId, ref: 'Group', default: null },
+    ownerId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
     createdAt: { 
         type: String,
         default: () => getCurrentTime()

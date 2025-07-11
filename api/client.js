@@ -2,7 +2,8 @@ const express = require('express')
 const router = express.Router()
 const Decimal = require('decimal.js')
 const axios = require('axios')
-const { getCurrentTime } = require('../utils/index')
+const { getCurrentTime, getUser } = require('../utils/index')
+const crypto = require('../utils/crypto')
 const Token = require('../schema/tokenSchema')
 const OrderSignal = require('../schema/orderSignalSchema')
 const Link = require('../schema/linkSchema')
@@ -192,7 +193,16 @@ router.post('/settle', async (req, res) => {
 			return
 		}
 		// 将 order_no 和 signal 存入 MongoDB
-        const orderSignal = new OrderSignal({ order_no, signal, phone, price: Number(price), originPrice })
+		const t = await Token.findOne({ phone })
+        const orderSignal = new OrderSignal({ 
+			order_no,
+			signal,
+			phone,
+			price: Number(price),
+			originPrice,
+			groupId: t ? t.groupId : null,
+			ownerId: t.ownerId
+		})
         await orderSignal.save()
 
 		// 将链接状态置为已下单
@@ -236,6 +246,62 @@ router.get('/checkOrder', async (req, res) => {
         }
     } catch (err) {
         res.status(500).send({ code: 500, message: '服务器错误', error: err.message })
+    }
+})
+
+router.get('/getLinkDetails', async (req, res) => {
+	const { uuid } = req.query
+	if (!uuid) {
+		return res.status(400).send({ code: 400, message: '请提供 uuid 参数' })
+	}
+	try {
+		const link = await Link.findOne({ uuid }, { phone: 1, price: 1, _id: 0 })
+		if (!link) {
+			return res.status(404).send({ code: 404, message: '未找到对应的链接' })
+		}
+		res.send({ 
+			code: 200,
+			message: '查询成功',
+			data: {
+				price: crypto.encrypt(link.price),
+				phone: crypto.encrypt(link.phone)
+			}
+		})
+	} catch (error) {
+		res.status(500).send({ code: 500, message: '服务器错误', error: error.message })
+	}
+})
+
+router.get('/isLinkClosed', async (req, res) => {
+	const { uuid } = req.query
+	if (!uuid) {
+		return res.status(400).send({ code: 400, message: '请提供 uuid 参数' })
+	}
+	try {
+		const link = await Link.findOne({ uuid })
+		res.send({ code: 200, message: '查询成功', data: +link.status === 0 })
+	} catch (error) {
+		res.status(500).send({ code: 500, message: '服务器错误', error: error.message })
+	}
+})
+
+router.get('/orderDetail', async (req, res) => {
+    const { signal, phone } = req.query
+    if (!signal) {
+        return res.status(400).send({ code: 400, message: '请提供 signal 参数' })
+    }
+    try {
+		const orderSignal = await OrderSignal.findOne({ signal })
+		const { order_no } = orderSignal
+		const tokenValue = await getTokenByPhone(phone)
+        const { data: result } = await axios.get(`https://go.heytea.com/api/service-oms-order/grayapi/order/detail?orderNo=${order_no}`, {
+			headers: {
+				'Authorization': tokenValue
+			}
+		})
+		res.send(result)
+    } catch (err) {
+        res.send({ code: err.status, message: err?.response?.data.message || '请求失败' })
     }
 })
 

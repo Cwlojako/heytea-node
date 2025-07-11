@@ -1,3 +1,8 @@
+const User = require('../schema/userSchema')
+
+const jwt = require('jsonwebtoken')
+const SECRET = 'cwlojako' 
+
 function getCurrentTime() {
 	const date = new Date()
 	const year = date.getFullYear()
@@ -9,6 +14,14 @@ function getCurrentTime() {
 	return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`
 }
 
+async function getUser(auth) {
+	const token = auth.replace('Bearer ', '')
+	const decoded = jwt.verify(token, SECRET)
+	const user = await User.findById(decoded.id)
+	return user
+}
+
 module.exports = {
-    getCurrentTime
+    getCurrentTime,
+	getUser
 }
