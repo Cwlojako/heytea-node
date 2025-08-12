@@ -179,4 +179,19 @@ router.post('/refund', async (req, res) => {
 	}
 })
 
+router.post('/updatePrice', async (req, res) => {
+    const { uuid, price } = req.body
+    if (!uuid || typeof price === 'undefined') {
+        return res.status(400).send({ code: 400, message: '请提供 uuid 和 price 参数' })
+    }
+    try {
+        const result = await Link.updateOne({ uuid }, { $set: { price } })
+        if (result.matchedCount === 0) {
+            return res.status(404).send({ code: 404, message: '未找到对应的链接' })
+        }
+        res.send({ code: 200, message: '价格更新成功', data: result })
+    } catch (error) {
+        res.status(500).send({ code: 500, message: '服务器错误', error: error.message })
+    }
+})
 module.exports = router

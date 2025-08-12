@@ -1,5 +1,6 @@
 const express = require('express')
 const router = express.Router()
+const axios = require('axios')
 const { getCurrentTime, getUser } = require('../utils/index')
 const Token = require('../schema/tokenSchema')
 const Group = require('../schema/groupSchema')
@@ -110,6 +111,35 @@ router.post('/deleteTokens', async (req, res) => {
         res.send({ code: 200, message: '删除成功', data: result })
     } catch (error) {
         res.status(500).send({ code: 500, message: '服务器错误', error: error.message })
+    }
+})
+
+// 获取新的token
+router.post('/getNewToken', async (req, res) => {
+    const { encryptPhone, authCode, phone } = req.body
+    if (!encryptPhone) {
+        return res.status(400).send({ code: 400, message: '请提供加密手机号参数，没有请联系管理员操作' })
+    }
+    try {
+        const { data: result } = await axios.post(`https://go.heytea.com/api/service-login/openapi/vip/user/login_v1`, {
+            "channel": "A",
+            "loginType": "APP_CODE",
+            "phone": phone,
+            "email": "",
+            "smsCode": authCode,
+            "brand": "1000001",
+            "client": "app",
+            "zone": "86",
+            "cryptoLevel": 1
+        })
+        if (result.code === 0) {
+            res.send({ code: 200, message: '获取成功', data: result.data })
+        } else {
+            res.status(500).send({ code: 500, message: '获取失败' })
+        }
+		
+    } catch (err) {
+        res.send({ code: err.status, message: err?.response?.data.message || '请求失败' })
     }
 })
 
