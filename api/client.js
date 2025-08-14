@@ -94,12 +94,12 @@ router.post('/settle', async (req, res) => {
 				}
 			})
 			const { couponType, discountText, upLimitText } = coupon.data
-			if (couponType === 0) { // 满减券
+			if (couponType === 0) { // 满减券、现金券
 				const p = price - +discountText
 				price = p < 0 ? 0 : p
 			} else if (couponType === 3) { // 折扣券
 				if (coupon.data.name === '第二杯半价券') {
-					price = Decimal(price).mul(Decimal(0.75)).toNumber()
+					price = Decimal(price).mul(Decimal(0.75))
 				} else {
 					const discount = Decimal(price) - (Decimal(price).mul(Decimal(discountText).div(Decimal(10))))
 					if (upLimitText) {
@@ -107,10 +107,21 @@ router.post('/settle', async (req, res) => {
 						if (discount >= highestDiscount) {
 							price = price - highestDiscount
 						} else {
-							price = Decimal(price).mul(Decimal(discountText).div(Decimal(10)))
+							// 处理单杯时选择了需要加价的规格，如【大杯】【加料】时，这些规格不参与折扣，需要减掉
+							if (products.length === 1 && products[0].specPrice) {
+								price = ((Decimal(price).sub(Decimal(products[0].specPrice))).mul(Decimal(discountText)).div(Decimal(10))).add(Decimal(products[0].specPrice))
+							} else {
+								price = Decimal(price).mul(Decimal(discountText).div(Decimal(10)))
+							}
+							
 						}
 					} else {
-						price = Decimal(price).mul(Decimal(discountText).div(Decimal(10)))
+						// 处理单杯时选择了需要加价的规格，如【大杯】【加料】时，这些规格不参与折扣，需要减掉
+						if (products.length === 1 && products[0].specPrice) {
+							price = ((Decimal(price).sub(Decimal(products[0].specPrice))).mul(Decimal(discountText)).div(Decimal(10))).add(Decimal(products[0].specPrice))
+						} else {
+							price = Decimal(price).mul(Decimal(discountText).div(Decimal(10)))
+						}
 					}
 				}
 			} else if (couponType === 2) { // 买赠券
